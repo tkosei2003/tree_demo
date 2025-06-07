@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'dart:math' as math;
 
+import 'package:tree_demo/painter.dart';
+
 void main() {
   runApp(
     ChangeNotifierProvider(
@@ -33,12 +35,33 @@ class TreeNodeData extends ChangeNotifier {
   final Map<int, TreeNode> _nodes = {};
   int _nextNodeId = 1;
   int? _selectedNodeId;
-  double spaceX = 60.0;
+  double spaceX = 100.0;
   double spaceY = 100.0;
   int maxDepth = 0;
 
   TreeNodeData() {
-    addNode(); // Add the root node
+    // Add the root node
+    final rootNode = TreeNode(id: _nextNodeId++, color: Colors.blue);
+    _nodes[rootNode.id] = rootNode;
+
+    // Add startNode
+    final startNode = TreeNode(
+      id: _nextNodeId++,
+      parentId: rootNode.id,
+      color: Colors.green,
+    );
+    _nodes[startNode.id] = startNode;
+    rootNode.childrenIds = [...rootNode.childrenIds, startNode.id];
+
+    // Add goalNode
+    final goalNode = TreeNode(
+      id: _nextNodeId++,
+      parentId: rootNode.id,
+      color: Colors.red,
+    );
+    _nodes[goalNode.id] = goalNode;
+    rootNode.childrenIds = [...rootNode.childrenIds, goalNode.id];
+
     recalculatePositions();
   }
 
@@ -71,7 +94,7 @@ class TreeNodeData extends ChangeNotifier {
     if (parentId != null) {
       _nodes[parentId]!.childrenIds.remove(nodeId);
     }
-    if(parentId == null) {
+    if (parentId == null) {
       return;
     }
 
@@ -202,6 +225,76 @@ class MyApp extends StatelessWidget {
 class TreeViewPage extends StatelessWidget {
   const TreeViewPage({Key? key}) : super(key: key);
 
+  TreeNode? findLeftAncle(TreeNode node, Map<int, TreeNode> nodes) {
+    TreeNode? currentParent = nodes[node.parentId];
+
+    while (currentParent != null) {
+      final grandParent = nodes[currentParent.parentId];
+      if (grandParent == null) break;
+
+      final ancles = grandParent.childrenIds;
+      final ancleIndex = ancles.indexOf(currentParent.id);
+
+      // 左の兄弟ノードが見つかった場合
+      if (ancleIndex > 0) {
+        final leftAncleId = ancles[ancleIndex - 1];
+        return nodes[leftAncleId];
+      }
+
+      // 次の親を辿る
+      currentParent = grandParent;
+    }
+
+    // 左の兄弟ノードが見つからなかった場合
+    return null;
+  }
+
+  TreeNode? findRightAunt(TreeNode node, Map<int, TreeNode> nodes) {
+    TreeNode? currentParent = nodes[node.parentId];
+
+    while (currentParent != null) {
+      final grandParent = nodes[currentParent.parentId];
+      if (grandParent == null) break;
+
+      final aunts = grandParent.childrenIds;
+      final auntIndex = aunts.indexOf(currentParent.id);
+
+      // 右の兄弟ノードが見つかった場合
+      if (auntIndex >= 0 && auntIndex < aunts.length - 1) {
+        final rightAuntId = aunts[auntIndex + 1];
+        return nodes[rightAuntId];
+      }
+
+      // 次の親を辿る
+      currentParent = grandParent;
+    }
+
+    // 右の兄弟ノードが見つからなかった場合
+    return null;
+  }
+
+  TreeNode? findRightMostDescendant(TreeNode node, Map<int, TreeNode> nodes) {
+    TreeNode? currentNode = node;
+
+    while (currentNode != null && currentNode.childrenIds.isNotEmpty) {
+      final rightMostChildId = currentNode.childrenIds.last;
+      currentNode = nodes[rightMostChildId];
+    }
+
+    return currentNode;
+  }
+
+  TreeNode? findLeftMostDescendant(TreeNode node, Map<int, TreeNode> nodes) {
+    TreeNode? currentNode = node;
+
+    while (currentNode != null && currentNode.childrenIds.isNotEmpty) {
+      final leftMostChildId = currentNode.childrenIds.first;
+      currentNode = nodes[leftMostChildId];
+    }
+
+    return currentNode;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -224,61 +317,213 @@ class TreeViewPage extends StatelessWidget {
             scrollDirection: Axis.horizontal,
             child: SingleChildScrollView(
               scrollDirection: Axis.vertical,
-              child: SizedBox(
-                width: maxX,
-                height: maxY,
-                child: Stack(
-                  children: [
-                    // Draw connections
-                    ...nodes.values.map((node) {
-                      if (node.parentId == null) return const SizedBox.shrink();
-                      final parent = nodes[node.parentId];
-                      if (parent == null) return const SizedBox.shrink();
-
-                      return CustomPaint(
-                        painter: ConnectionPainter(
-                          start: Offset(parent.x + 25, parent.y + 25),
-                          end: Offset(node.x + 25, node.y + 25),
-                          color: Colors.grey,
-                        ),
-                      );
-                    }).toList(),
-
-                    // Draw nodes
-                    ...nodes.values.map((node) {
-                      final isSelected = treeNodeData.selectedNodeId == node.id;
-                      return Positioned(
-                        left: node.x,
-                        top: node.y,
-                        child: GestureDetector(
-                          onTap: () {
-                            treeNodeData.selectNode(node.id);
-                          },
-                          child: Container(
-                            width: 50,
-                            height: 50,
-                            decoration: BoxDecoration(
-                              color: node.color,
-                              shape: BoxShape.circle,
-                              border:
-                                  isSelected
-                                      ? Border.all(
-                                        color: Colors.yellow,
-                                        width: 3,
-                                      )
-                                      : null,
+              child: Padding(
+                padding: const EdgeInsets.all(30.0),
+                child: SizedBox(
+                  width: maxX,
+                  height: maxY,
+                  child: Stack(
+                    children: [
+                      // Draw connections
+                      ...nodes.values.map((node) {
+                        if (node.parentId == null) return const SizedBox.shrink();
+                        final parent = nodes[node.parentId];
+                        if (parent == null) return const SizedBox.shrink();
+                        // Get the left sibling node
+                        final siblings = parent.childrenIds;
+                        final nodeIndex = siblings.indexOf(node.id);
+                        if (nodeIndex <= 0)
+                          return const SizedBox.shrink(); // No left sibling
+                
+                        final leftSiblingId = siblings[nodeIndex - 1];
+                        final leftSibling = nodes[leftSiblingId];
+                        if (leftSibling == null) return const SizedBox.shrink();
+                        // Draw connection to left sibling
+                        return CustomPaint(
+                          painter: ConnectionPainterSibling(
+                            start: Offset(leftSibling.x + 25, leftSibling.y + 25),
+                            end: Offset(node.x + 25, node.y + 25),
+                            color: Colors.grey,
+                          ),
+                        );
+                      }).toList(),
+                      // Draw Ancle connections
+                      ...nodes.values.map((node) {
+                        if (node.parentId == null) return const SizedBox.shrink();
+                        final parent = nodes[node.parentId];
+                        if (parent == null) return const SizedBox.shrink();
+                        final leftAncle = findLeftAncle(node, nodes);
+                        if (leftAncle == null) return const SizedBox.shrink();
+                        final siblings = parent.childrenIds;
+                        final nodeIndex = siblings.indexOf(node.id);
+                        if (nodeIndex > 0) return const SizedBox.shrink();
+                        final leftChild = findLeftMostDescendant(node, nodes);
+                        return CustomPaint(
+                          painter: ConnectionPainterAncle(
+                            start: Offset(leftAncle.x + 25, leftAncle.y + 25),
+                            end: Offset(node.x + 25, node.y + 25),
+                            curveEnd:
+                                leftChild != null
+                                    ? Offset(leftChild.x + 25, leftChild.y + 25)
+                                    : Offset(node.x + 25, node.y + 25),
+                            color: Colors.grey,
+                          ),
+                        );
+                      }).toList(),
+                      // Draw aunt connections
+                      ...nodes.values.map((node) {
+                        if (node.parentId == null) return const SizedBox.shrink();
+                        final parent = nodes[node.parentId];
+                        if (parent == null) return const SizedBox.shrink();
+                        final rightAunt = findRightAunt(node, nodes);
+                        if (rightAunt == null) return const SizedBox.shrink();
+                        final siblings = parent.childrenIds;
+                        final nodeIndex = siblings.indexOf(node.id);
+                        if (nodeIndex < siblings.length - 1)
+                          return const SizedBox.shrink();
+                        final rightChild = findRightMostDescendant(node, nodes);
+                        return CustomPaint(
+                          painter: ConnectionPainterAunt(
+                            start: Offset(rightAunt.x + 25, rightAunt.y + 25),
+                            end: Offset(node.x + 25, node.y + 25),
+                            curveStart:
+                                rightChild != null
+                                    ? Offset(rightChild.x + 25, rightChild.y + 25)
+                                    : Offset(node.x + 25, node.y + 25),
+                            color: Colors.grey,
+                          ),
+                        );
+                      }).toList(),
+                      // Draw nodes
+                      ...nodes.values.map((node) {
+                        final isSelected = treeNodeData.selectedNodeId == node.id;
+                        final rootNode = nodes.values.firstWhere(
+                          (node) => node.parentId == null,
+                        );
+                        final startNode =
+                            rootNode.childrenIds.isNotEmpty
+                                ? nodes[rootNode.childrenIds.first]
+                                : null;
+                        final goalNode =
+                            rootNode.childrenIds.isNotEmpty
+                                ? nodes[rootNode.childrenIds.last]
+                                : null;
+                        // 特別扱い: rootNode
+                        if (node.id == rootNode.id) {
+                          return Positioned(
+                            left: 0,
+                            top: 0,
+                            child: GestureDetector(
+                              onTap: () {
+                                treeNodeData.selectNode(node.id);
+                              },
+                              child: Container(
+                                width: 200,
+                                height: 70,
+                                padding: const EdgeInsets.all(8.0),
+                                decoration: BoxDecoration(
+                                  color: Colors.blue,
+                                  border:
+                                    isSelected
+                                        ? Border.all(
+                                          color: Colors.yellow,
+                                          width: 3,
+                                        )
+                                        : null,
+                                  borderRadius: BorderRadius.circular(
+                                    10,
+                                  ), // 角丸の正方形
+                                ),
+                                child: const Center(
+                                  child: Text(
+                                    '第一層目を増やしたい時はここを選択',
+                                    style: TextStyle(color: Colors.white),
+                                  ),
+                                ),
+                              ),
                             ),
-                            child: Center(
-                              child: Text(
-                                node.id.toString(),
-                                style: const TextStyle(color: Colors.white),
+                          );
+                        }
+                        // 特別扱い: startNode
+                        if (node == startNode) {
+                          return Positioned(
+                            left: node.x,
+                            top: node.y,
+                            child: Container(
+                              width: 50,
+                              height: 50,
+                              decoration: BoxDecoration(
+                                color: Colors.green,
+                                borderRadius: BorderRadius.circular(10), // 角丸の正方形
+                              ),
+                              child: const Center(
+                                child: Text(
+                                  'Start',
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                              ),
+                            ),
+                          );
+                        }
+                
+                        // 特別扱い: goalNode
+                        if (node == goalNode) {
+                          return Positioned(
+                            left: node.x,
+                            top: node.y,
+                            child: Container(
+                              width: 50,
+                              height: 50,
+                              decoration: BoxDecoration(
+                                color: Colors.red,
+                                borderRadius: BorderRadius.circular(10), // 角丸の正方形
+                              ),
+                              child: const Center(
+                                child: Text(
+                                  'Goal',
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                              ),
+                            ),
+                          );
+                        }
+                
+                        // 通常ノード
+                        return Positioned(
+                          left: node.x,
+                          top: node.y,
+                          child: GestureDetector(
+                            onTap: () {
+                              if (node != startNode && node != goalNode) {
+                                treeNodeData.selectNode(node.id);
+                              }
+                            },
+                            child: Container(
+                              width: 50,
+                              height: 50,
+                              decoration: BoxDecoration(
+                                color: node.color,
+                                shape: BoxShape.circle,
+                                border:
+                                    isSelected
+                                        ? Border.all(
+                                          color: Colors.yellow,
+                                          width: 3,
+                                        )
+                                        : null,
+                              ),
+                              child: Center(
+                                child: Text(
+                                  node.id.toString(),
+                                  style: const TextStyle(color: Colors.white),
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      );
-                    }).toList(),
-                  ],
+                        );
+                      }).toList(),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -320,35 +565,5 @@ class TreeViewPage extends StatelessWidget {
         ],
       ),
     );
-  }
-}
-
-class ConnectionPainter extends CustomPainter {
-  final Offset start;
-  final Offset end;
-  final Color color;
-
-  ConnectionPainter({
-    required this.start,
-    required this.end,
-    required this.color,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint =
-        Paint()
-          ..color = color
-          ..strokeWidth = 2
-          ..style = PaintingStyle.stroke;
-
-    canvas.drawLine(start, end, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant ConnectionPainter oldDelegate) {
-    return start != oldDelegate.start ||
-        end != oldDelegate.end ||
-        color != oldDelegate.color;
   }
 }
